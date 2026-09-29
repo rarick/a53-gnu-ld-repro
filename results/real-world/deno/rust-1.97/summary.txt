@@ -1,0 +1,9 @@
+case              link_s ld_gets_fix  veneers  text_MiB
+lld/keep             5.7           1     4622       182
+patched/strip       32.5           0     5198       182
+patched/keep       136.6           1     5202       182
+patched/optout      32.6           0     5198       182
+stock/keep         136.1           1     5202       182
+debian/keep        128.1           1     5202       182
+debian/optout      120.2           0     5198       182
+debian/strip       118.9           0     5198       182
