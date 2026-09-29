@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = ["crates/repro-gen", "crates/repro"]
+
+# Keep the generated crate in one codegen unit so functions are emitted in
+# definition order (callers, then padding, then targets). That ordering is what
+# puts every caller more than 128 MiB away from its target.
+[profile.dev.package.repro-gen]
+codegen-units = 1

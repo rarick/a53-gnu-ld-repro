@@ -1,0 +1,31 @@
+# Upstream binutils commit 6e72ff251801b05ec10bed36130647985658d7c3 (master, 2026-08-07)
+# "aarch64: ERRAT_NONE is not zero, so test against it" by Kyrylo Tkachov.
+# Source: https://inbox.sourceware.org/binutils/20260806054354.27168-1-ktkachov@nvidia.com/
+# Applied on top of the binutils-2.47 release tarball (hunks apply with an offset).
+
+diff --git a/bfd/elfnn-aarch64.c b/bfd/elfnn-aarch64.c
+index cbd4abea12..6194d18225 100644
+--- a/bfd/elfnn-aarch64.c
++++ b/bfd/elfnn-aarch64.c
+@@ -5704,7 +5704,7 @@ elfNN_aarch64_write_section (bfd *output_bfd  ATTRIBUTE_UNUSED,
+ 			 make_branch_to_erratum_835769_stub, &data);
+     }
+ 
+-  if (globals->fix_erratum_843419)
++  if (globals->fix_erratum_843419 != ERRAT_NONE)
+     {
+       struct erratum_835769_branch_to_stub_data data;
+ 
+@@ -9747,7 +9747,7 @@ elfNN_aarch64_late_size_sections (struct bfd_link_info *info)
+ 
+   /* Init mapping symbols information to use later to distingush between
+      code and data while scanning for errata.  */
+-  if (htab->fix_erratum_835769 || htab->fix_erratum_843419)
++  if (htab->fix_erratum_835769 || htab->fix_erratum_843419 != ERRAT_NONE)
+     for (ibfd = info->input_bfds; ibfd != NULL; ibfd = ibfd->link.next)
+       {
+ 	if (!is_aarch64_elf (ibfd))
+-- 
+2.50.1 (Apple Git-155)
+
+

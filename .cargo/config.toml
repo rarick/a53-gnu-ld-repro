@@ -1,0 +1,5 @@
+[target.aarch64-unknown-linux-gnu]
+# Every link goes through the wrapper; REPRO_LD / REPRO_A53 pick the case.
+# Those env vars are not part of cargo's fingerprint, so switching cases only
+# relinks (see run-cases.sh), it never recompiles the workload.
+linker = "/repro/repro-cc"

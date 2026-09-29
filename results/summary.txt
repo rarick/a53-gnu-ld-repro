@@ -1,0 +1,10 @@
+case           link_s     ld_gets_fix  veneers erratum_stubs  text_MiB  run
+fixed/strip    1.3        0              40178             0       162  ok=true
+fixed/keep     82.9       2              40178             0       162  ok=true
+fixed/optout   84.6       1              40178             0       162  ok=true
+stock/strip    82.5       0              40178             0       162  ok=true
+stock/keep     81.4       2              40178             0       162  ok=true
+system/strip   61.4       0              40178             0       162  ok=true
+system/keep    61.6       2              40178             0       162  ok=true
+lld/strip      0.2        0              40021             0       162  ok=true
+lld/keep       0.3        2              40021             0       162  ok=true
