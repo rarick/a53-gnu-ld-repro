@@ -3,7 +3,7 @@
 # binary once per case and records link time, the linker used, whether rustc's
 # Cortex-A53 flag reached the driver, the veneer count, and that the binary runs.
 #
-# Usage: run-cases.sh [case ...]    case = <ld>/<a53>, e.g. fixed/strip
+# Usage: run-cases.sh [case ...]    case = <ld>/<a53>, e.g. patched/strip
 set -euo pipefail
 cd /repro
 : "${CARGO_TARGET_DIR:=/tmp/target}"; export CARGO_TARGET_DIR
@@ -12,14 +12,14 @@ export REPRO_LOG="$RESULTS/link.log"
 bin="$CARGO_TARGET_DIR/debug/repro"
 
 cases=("$@")
-[[ ${#cases[@]} -eq 0 ]] && cases=(fixed/strip fixed/keep fixed/optout stock/strip stock/keep system/strip system/keep lld/strip lld/keep)
+[[ ${#cases[@]} -eq 0 ]] && cases=(patched/strip patched/keep patched/optout stock/strip stock/keep stock/optout debian/strip debian/keep debian/optout lld/strip lld/keep lld/optout)
 
 {
   echo "== environment"
   rustc -V; cargo -V
   echo "host: $(uname -m), $(nproc) cpus"
-  for v in stock fixed; do echo "binutils-$v: $(/opt/binutils-$v/bin/ld --version | head -1)"; done
-  echo "system ld: $(ld --version | head -1)"
+  for v in stock patched; do echo "binutils-$v: $(/opt/binutils-$v/bin/ld --version | head -1)"; done
+  echo "debian ld: $(ld --version | head -1)"
   echo "lld: $(ld.lld --version)"
   echo "workload: REPRO_CALLERS=${REPRO_CALLERS:-40000} REPRO_PAD_MIB=${REPRO_PAD_MIB:-160} REPRO_FILLERS=${REPRO_FILLERS:-0}"
 } | tee "$RESULTS/env.txt"

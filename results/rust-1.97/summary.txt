@@ -1,0 +1,13 @@
+case           link_s     ld_gets_fix  veneers erratum_stubs  text_MiB  run
+patched/strip  1.3        0              40177             0       162  ok=true
+patched/keep   70.6       1              40177             0       162  ok=true
+patched/optout 1.3        0              40177             0       162  ok=true
+stock/strip    70.5       0              40177             0       162  ok=true
+stock/keep     72.0       1              40177             0       162  ok=true
+stock/optout   68.4       0              40177             0       162  ok=true
+debian/strip   60.1       0              40177             0       162  ok=true
+debian/keep    60.9       1              40177             0       162  ok=true
+debian/optout  61.3       0              40177             0       162  ok=true
+lld/strip      0.2        0              40021             0       162  ok=true
+lld/keep       0.3        1              40021             0       162  ok=true
+lld/optout     0.2        0              40021             0       162  ok=true

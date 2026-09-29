@@ -19,7 +19,7 @@ for p in "${points[@]}"; do
   c=${p%:*}; f=${p#*:}
   d="$RESULTS/sweep-$c-$f"
   RESULTS=$d REPRO_CALLERS=$c REPRO_FILLERS=$f CARGO_TARGET_DIR=/tmp/target-$c-$f \
-    ./run-cases.sh fixed/strip fixed/keep > /dev/null
+    ./run-cases.sh patched/strip patched/keep > /dev/null
   read -r _ s0 _ v _ t _ < <(sed -n 2p "$d/summary.txt")
   read -r _ s1 _ _ _ _ _ < <(sed -n 3p "$d/summary.txt")
   printf '%-8s %-8s %-11s %8s %12s %12s %8s\n' "$c" "$f" "$t" "$v" "$s0" "$s1" \

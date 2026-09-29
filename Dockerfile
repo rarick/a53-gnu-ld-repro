@@ -6,7 +6,7 @@
 # Base: the official Docker Hub Rust image (Debian bookworm). On top of it we
 # build GNU ld from the binutils-2.47 release tarball twice:
 #   /opt/binutils-stock  unmodified 2.47
-#   /opt/binutils-fixed  2.47 + upstream commit 6e72ff2 ("aarch64: ERRAT_NONE is
+#   /opt/binutils-patched  2.47 + upstream commit 6e72ff2 ("aarch64: ERRAT_NONE is
 #                        not zero, so test against it"), which stops ld from
 #                        running the 843419 stub walk when the fix is NOT asked for
 # and install Debian's lld for comparison.
@@ -17,7 +17,7 @@ ARG RUST_IMAGE=rust:1.98-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0
 FROM ${RUST_IMAGE}
 
 ARG BINUTILS_VERSION=2.47
-# sha256 of https://ftp.gnu.org/gnu/binutils/binutils-2.47.tar.xz
+# sha256 of binutils-2.47.tar.xz (from ftp.gnu.org; any GNU mirror copy must match)
 ARG BINUTILS_SHA256=154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff
 
 RUN apt-get update \
@@ -27,14 +27,16 @@ RUN apt-get update \
 COPY binutils-errat-none-fix.patch /tmp/binutils-errat-none-fix.patch
 RUN set -eux; \
     cd /tmp; \
-    curl -fsSLO "https://ftp.gnu.org/gnu/binutils/binutils-${BINUTILS_VERSION}.tar.xz"; \
+    tarball="binutils-${BINUTILS_VERSION}.tar.xz"; \
+    curl -fsSLO --retry 5 --retry-all-errors --connect-timeout 30 "https://ftp.gnu.org/gnu/binutils/$tarball" \
+      || curl -fsSLO --retry 5 --retry-all-errors --connect-timeout 30 "https://ftpmirror.gnu.org/binutils/$tarball"; \
     if [ -n "${BINUTILS_SHA256}" ]; then \
       echo "${BINUTILS_SHA256}  binutils-${BINUTILS_VERSION}.tar.xz" | sha256sum -c -; \
     fi; \
-    for variant in stock fixed; do \
+    for variant in stock patched; do \
       mkdir "src-$variant" "build-$variant"; \
       tar -xJf "binutils-${BINUTILS_VERSION}.tar.xz" -C "src-$variant" --strip-components=1; \
-      if [ "$variant" = fixed ]; then \
+      if [ "$variant" = patched ]; then \
         (cd "src-$variant" && patch -p1 < /tmp/binutils-errat-none-fix.patch); \
       fi; \
       (cd "build-$variant" && \

@@ -1,1 +1,3 @@
 /target/
+/results/sweep-*/
+/results/docker-build*.log

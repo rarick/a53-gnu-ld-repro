@@ -2,8 +2,8 @@
 # Linker driver wrapper used as `-C linker` (see .cargo/config.toml).
 #
 #   REPRO_LD    stock  -> GNU ld from the binutils-2.47 release tarball
-#               fixed  -> the same, plus upstream commit 6e72ff2 (ERRAT_NONE fix)
-#               system -> the distro's ld (Debian bookworm: binutils 2.40)
+#               patched -> the same, plus upstream commit 6e72ff2 (ERRAT_NONE fix)
+#               debian -> the distro's own GNU ld (Debian bookworm: binutils 2.40)
 #               lld    -> LLVM lld (Debian package) via -fuse-ld=lld
 #   REPRO_A53   keep   -> pass rustc's arguments unchanged. rustc >= 1.98 adds
 #                         -Wl,--fix-cortex-a53-843419 on aarch64 Linux targets.
@@ -19,7 +19,7 @@
 # Each invocation appends one line to $REPRO_LOG, including whether the
 # linker itself receives --fix-cortex-a53-843419 (checked with `cc -###`).
 set -u
-mode_ld=${REPRO_LD:-system}
+mode_ld=${REPRO_LD:-debian}
 mode_a53=${REPRO_A53:-keep}
 flag='-Wl,--fix-cortex-a53-843419'
 
@@ -44,9 +44,9 @@ for a in "$@"; do
 done
 
 case $mode_ld in
-  stock|fixed) extra=("-B/opt/binutils-$mode_ld/bin/") ;;
-  lld)         extra=(-fuse-ld=lld) ;;
-  system)      extra=() ;;
+  stock|patched) extra=("-B/opt/binutils-$mode_ld/bin/") ;;
+  lld)           extra=(-fuse-ld=lld) ;;
+  debian)        extra=() ;;
   *) echo "repro-cc: unknown REPRO_LD=$mode_ld" >&2; exit 2 ;;
 esac
 [[ $mode_a53 == strip ]] && extra+=(-mno-fix-cortex-a53-843419)
