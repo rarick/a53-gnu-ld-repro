@@ -17,11 +17,12 @@ requests the pass on every link and there is no way to turn it off from
 | GNU ld, default + `-C link-arg=-mno-fix-cortex-a53-843419` | **32.6 s** | **144.5 s** |
 
 That's about 105 extra seconds on every relink of the `deno` binary, i.e. on every
-edit-rebuild cycle. On Rust 1.97 the documented opt-out removes it; on Rust 1.98
-it no longer does. "GNU ld" here is GNU ld 2.47 plus an upstream fix that lets the
-pass be turned off at all ([below](#explanation)); today's released GNU ld runs
-the pass regardless, so this is also what every AArch64 Rust build will pay once
-that fix ships.
+edit-rebuild cycle. On Rust 1.97, gcc's opt-out (`-C link-arg=-mno-fix-cortex-a53-843419`)
+removes it; on Rust 1.98 it no longer does. "GNU ld" here is GNU ld 2.47 plus an
+upstream fix that lets the pass be turned off at all ([below](#explanation)).
+Released GNU ld (2.33 through 2.47) runs the pass whether or not it is requested;
+once a release includes that fix, rustc's flag is what keeps the pass on, with no
+opt-out.
 
 The repository has three parts:
 
@@ -113,8 +114,8 @@ thing there.
 - **Erratum pass runs:** whether GNU ld executes the per-section erratum-843419
   pass (see [Explanation](#explanation)). It runs when ld is given the flag, **or**
   when ld lacks commit 6e72ff2: unpatched GNU ld runs it whether or not it is
-  given the flag. So it is "no" only for `patched/strip`, and for `patched/optout`
-  on Rust 1.97. This column comes from the source. The stack profiles
+  given the flag. So among the GNU ld cases it is "no" only for `patched/strip`,
+  and for `patched/optout` on Rust 1.97. This column comes from the source. The stack profiles
   (`results/profile-*.txt`, synthetic workload) confirm it for `patched/keep`
   (flag given) and for `stock/strip` (flag not given): in both, all 30 samples are
   in the pass. For lld the column reads "lld's": lld applies its own
@@ -148,19 +149,19 @@ The synthetic crate lets S and N be set independently, which no real project
 allows. It is shaped to need many stubs, not to trigger the erratum.
 
 `crates/repro-gen/build.rs` generates one crate, compiled into a single codegen
-unit, containing, in this order:
+unit. In the linked binary its functions appear in this order:
 
 1. `REPRO_CALLERS` caller functions, `a_call_i() -> z_targ_i()`.
-2. `REPRO_PAD_MIB` never-executed 1 MiB functions (`asm!(".space 1048576")`),
-   default 160. These stand in for 160 MiB of other code: they push the targets
-   more than 128 MiB away from the callers, beyond the ±128 MiB range of an
-   AArch64 `BL`.
-3. `REPRO_CALLERS` target functions.
-4. Optionally, `REPRO_FILLERS` leaf functions that need no veneer.
+2. Optionally, `REPRO_FILLERS` leaf functions, `b_fill_i()`, which need no veneer.
+3. `REPRO_PAD_MIB` never-executed 1 MiB functions, `m_padd_i()`
+   (`asm!(".space 1048576")`), default 160. These stand in for 160 MiB of other
+   code: they push the targets more than 128 MiB away from the callers, beyond
+   the ±128 MiB range of an AArch64 `BL`.
+4. `REPRO_CALLERS` target functions, `z_targ_i()`.
 
-rustc gives each function its own `.text.*` section, and emits items in a
-deterministic order; the function names are chosen so that this order matches
-the layout above. As a result:
+rustc gives each function its own `.text.*` section. It emits these functions in
+name order rather than source order, which is what the `a_`, `b_`, `m_` and `z_`
+prefixes are for; `nm -n` on the linked binary shows the layout. As a result:
 
 - every caller needs one long-branch veneer (stub), so **N ≈ `REPRO_CALLERS`**;
 - each caller and target is its own input section, so **S ≈ 2 × `REPRO_CALLERS` +
@@ -194,6 +195,7 @@ Individual pieces, once the images are built:
 PROJECTS=deno real-world/run.sh                                          # Deno, Rust 1.98 and 1.97
 docker run --rm a53-ld-repro ./run-cases.sh patched/strip patched/keep   # chosen synthetic cases
 docker run --rm a53-ld-repro ./run-sweep.sh 20000:0 40000:0              # chosen sweep points
+docker run --rm a53-ld-repro ./check-gcc-default.sh                      # does the image's gcc request the fix by default?
 ./profile-case.sh stock strip 40000 30                                   # stack samples of the running ld
 ```
 
@@ -201,8 +203,9 @@ docker run --rm a53-ld-repro ./run-sweep.sh 20000:0 40000:0              # chose
 
 ### Deno
 
-Debug `deno` binary: 182 MiB `.text`, about 5,400 veneers with GNU ld (5,100 with
-lld). Results in `results/real-world/deno/`.
+Debug `deno` binary: 182 MiB `.text`; about 5,400 veneers with GNU ld and 5,100
+with lld on Rust 1.98 (5,200 and 4,600 on Rust 1.97). Results in
+`results/real-world/deno/`.
 
 | case | ld given the flag (1.97 / 1.98) | erratum pass runs (1.97 / 1.98) | Rust 1.97.1 | Rust 1.98.1 |
 |---|---|---|---|---|
@@ -264,8 +267,9 @@ in `results/summary.txt` (Rust 1.98) and `results/rust-1.97/summary.txt`.
 | `lld/optout` | no / yes | no / lld's | 0.2 s | 0.3 s |
 
 The same pattern as Deno: `patched/optout` is 1.3 s on Rust 1.97 and 83.0 s on
-Rust 1.98. The slow GNU ld links are 10-20% slower on the Rust 1.98 image than on
-the 1.97 one, which we have not investigated; Deno does not show this.
+Rust 1.98. With GNU ld 2.47 (`stock`, `patched`), the slow links are 10-20% slower
+on the Rust 1.98 image than on the 1.97 one; with Debian's ld 2.40 they differ by
+at most 4%. We have not investigated this, and Deno does not show it.
 
 ### Synthetic workload: scaling
 
@@ -314,7 +318,8 @@ results above.
    Since binutils 2.33 (PR ld/24373), `fix_erratum_843419` is an enum whose "off"
    value is `ERRAT_NONE = 1`. So `if (globals->fix_erratum_843419)` is always true
    (`stock/strip`, `debian/strip`). This is fixed on master by commit
-   [6e72ff2](https://inbox.sourceware.org/binutils/20260806054354.27168-1-ktkachov@nvidia.com/),
+   [6e72ff2](https://sourceware.org/git/?p=binutils-gdb.git;a=commit;h=6e72ff251801b05ec10bed36130647985658d7c3)
+   ([patch posting](https://inbox.sourceware.org/binutils/20260806054354.27168-1-ktkachov@nvidia.com/)),
    which is not yet in a release. With that fix, not requesting the pass takes a
    Deno relink from 139.9 s to 32.8 s (`patched/strip`).
 4. **Since Rust 1.98, users cannot stop rustc from requesting the pass.**

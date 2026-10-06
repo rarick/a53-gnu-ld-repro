@@ -21,8 +21,8 @@ cd "$(dirname "$0")"
 mkdir -p results
 callers=${REPRO_CALLERS:-40000}
 # Must match the digests in the Dockerfile.
-RUST198=rust:1.98-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e
-RUST197=rust:1.97-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97
+IMAGE_198=rust:1.98-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e
+IMAGE_197=rust:1.97-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97
 
 build() {  # <tag> <base image> <suffix>
   docker pull -q "$2" > /dev/null
@@ -32,8 +32,8 @@ build() {  # <tag> <base image> <suffix>
 }
 run() { docker run --rm -v "$PWD/results:/results" "$@"; }
 
-build a53-ld-repro "$RUST198" ""
-[[ ${RUST197:-1} != 0 ]] && build a53-ld-repro:rust-1.97 "$RUST197" "-rust-1.97"
+build a53-ld-repro "$IMAGE_198" ""
+[[ ${RUST197:-1} != 0 ]] && build a53-ld-repro:rust-1.97 "$IMAGE_197" "-rust-1.97"
 
 if [[ ${REALWORLD:-1} != 0 ]]; then
   real-world/run.sh
