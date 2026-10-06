@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Linker driver wrapper used as `-C linker` (see .cargo/config.toml).
+# Linker driver wrapper used as rustc's linker: via .cargo/config.toml for the
+# synthetic workload, and via CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER in
+# real-world/run-project.sh.
 #
 #   REPRO_LD    stock  -> GNU ld from the binutils-2.47 release tarball
 #               patched -> the same, plus upstream commit 6e72ff2 (ERRAT_NONE fix)

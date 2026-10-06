@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Host-side driver. Builds the Rust 1.98 and Rust 1.97 images, runs the full case
-# matrix on each, profiles the two slow GNU ld cases that differ in whether ld
+# Host-side driver. Builds the Rust 1.98 and Rust 1.97 images, runs the
+# real-world projects and the full synthetic case matrix on each, profiles the two slow GNU ld cases that differ in whether ld
 # is given the flag, then runs the scaling sweep (Rust 1.98).
 #
 # Results land in ./results/:
@@ -9,11 +9,13 @@
 #   profile-<ld>-<a53>.txt                        stack samples of the running ld
 #   sweep.txt                                     scaling sweep
 #   image-id*.txt base-image*.txt                 image digests
+#   real-world/<project>/rust-<ver>/              real-world projects (real-world/run.sh)
 #
 #   REPRO_CALLERS  size of the case-matrix workload (default 40000)
 #   RUST197=0      skip the Rust 1.97 matrix
 #   PROFILE=0      skip the profiles
 #   SWEEP=0        skip the sweep; SWEEP_POINTS="C:F ..." to choose points
+#   REALWORLD=0    skip the real-world projects (real-world/run.sh; needs both images)
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p results
@@ -31,10 +33,15 @@ build() {  # <tag> <base image> <suffix>
 run() { docker run --rm -v "$PWD/results:/results" "$@"; }
 
 build a53-ld-repro "$RUST198" ""
+[[ ${RUST197:-1} != 0 ]] && build a53-ld-repro:rust-1.97 "$RUST197" "-rust-1.97"
+
+if [[ ${REALWORLD:-1} != 0 ]]; then
+  real-world/run.sh
+fi
+
 run -e REPRO_CALLERS="$callers" a53-ld-repro ./run-cases.sh
 
 if [[ ${RUST197:-1} != 0 ]]; then
-  build a53-ld-repro:rust-1.97 "$RUST197" "-rust-1.97"
   run -e REPRO_CALLERS="$callers" -e RESULTS=/results/rust-1.97 a53-ld-repro:rust-1.97 ./run-cases.sh
 fi
 

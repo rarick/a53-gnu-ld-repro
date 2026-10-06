@@ -1,42 +1,64 @@
-# GNU ld + `--fix-cortex-a53-843419`: link time scales as sections × stubs on AArch64
+# GNU ld's Cortex-A53 843419 pass on AArch64: 4× slower links for large Rust binaries, and no opt-out since Rust 1.98
 
-A self-contained Docker reproducer. It shows that on AArch64, GNU ld's Cortex-A53
-erratum 843419 pass costs time proportional to **(input sections) × (linker
-stubs)**, even when no erratum site exists. It also shows that since Rust 1.98
-([rust-lang/rust#155453](https://github.com/rust-lang/rust/pull/155453)) there is
-no way to turn the pass off from `rustc`/Cargo.
+On AArch64 Linux, GNU ld's Cortex-A53 erratum 843419 pass costs time proportional
+to **(input sections) × (linker stubs)**, even when the binary contains no erratum
+site at all. Large Rust binaries have plenty of both. Since Rust 1.98
+([rust-lang/rust#155453](https://github.com/rust-lang/rust/pull/155453)), rustc
+requests the pass on every link and there is no way to turn it off from
+`rustc`/Cargo.
 
-On the workload below, a GNU ld patched so that the pass can be turned off links
-in **1.3 s** with it off and **79.7 s** with it on. The user opt-out
-`-C link-arg=-mno-fix-cortex-a53-843419` turns it off on Rust 1.97 (1.3 s), but not
-on Rust 1.98 (83.0 s).
+**[Deno](https://github.com/denoland/deno), unmodified, plain `cargo build`
+(debug), Graviton3:**
+
+| | Rust 1.97.1 | Rust 1.98.1 |
+|---|---|---|
+| GNU ld, erratum pass off | 32.5 s | 32.8 s |
+| GNU ld, default arguments | 136.6 s | 139.9 s |
+| GNU ld, default + `-C link-arg=-mno-fix-cortex-a53-843419` | **32.6 s** | **144.5 s** |
+
+That's about 105 extra seconds on every relink of the `deno` binary, i.e. on every
+edit-rebuild cycle. On Rust 1.97 the documented opt-out removes it; on Rust 1.98
+it no longer does. "GNU ld" here is GNU ld 2.47 plus an upstream fix that lets the
+pass be turned off at all ([below](#explanation)); today's released GNU ld runs
+the pass regardless, so this is also what every AArch64 Rust build will pay once
+that fix ships.
+
+The repository has three parts:
+
+- **Deno** ([`real-world/`](real-world/)): the headline measurement above.
+- **Four other popular projects** (same scripts): how far the effect reaches.
+  Binaries below ~128 MiB of `.text` need no stubs and pay a much smaller cost.
+- **A synthetic crate** ([`crates/`](crates/)): not a real-world case, but a way
+  to vary sections and stubs independently, to show the S × N scaling and to
+  isolate each linker and flag combination.
 
 ## Methodology
 
 ### Requirements
 
-- **An aarch64 (arm64) Linux host.** The workload is built and linked natively for
-  `aarch64-unknown-linux-gnu`, and the binaries are run to check them. Running on
-  x86-64 under emulation has not been tested.
+- **An aarch64 (arm64) Linux host.** Everything is built and linked natively for
+  `aarch64-unknown-linux-gnu`. Running on x86-64 under emulation has not been tested.
 - **Docker** with BuildKit (the default builder since Docker 23). Tested with Docker 25.
-- **Network access** during the image builds, to Docker Hub, the Debian package
-  mirrors and `ftp.gnu.org` (falling back to `ftpmirror.gnu.org`).
-- **Disk:** about 2 GB per built image (two images), plus the Cargo target
-  directory inside each running container.
-- **Time:** on 64 vCPU, a full `./run.sh` takes about 45 minutes: two image
-  builds, two 12-case matrices, two profiles and the scaling sweep. Links are
-  single-threaded, so fewer cores mostly slows the image builds and the one-off
-  compile.
+- **Network access** during the image builds and project builds, to Docker Hub,
+  the Debian package mirrors, `ftp.gnu.org` (falling back to `ftpmirror.gnu.org`),
+  GitHub and crates.io.
+- **Disk:** about 2 GB per image (four images), plus about 65 GB of Cargo target
+  directories and checkouts under `real-world/work` and `real-world/src`, most of
+  it the two Deno debug builds.
+- **Time:** on 64 vCPU, a full `./run.sh` takes about 1.5-2 hours: about 40
+  minutes for Deno, 15 for the other projects and 45 for the synthetic workload. Links are single-threaded, so fewer cores mostly
+  slows the compiles.
 
-Results below are from an AWS Graviton3 instance (Neoverse V1, 64 vCPU).
+All results are from an AWS Graviton3 instance (Neoverse V1, 64 vCPU).
 
 ### Provenance
 
 Every input is public and pinned:
 
 - **Base images:** the official Docker Hub `rust:1.98-bookworm` (rustc 1.98.1) and
-  `rust:1.97-bookworm` (rustc 1.97), both Debian bookworm and both pinned by digest
-  in `run.sh`. `results/base-image*.txt` and `results/image-id*.txt` record what was used.
+  `rust:1.97-bookworm` (rustc 1.97.1), both Debian bookworm and both pinned by
+  digest in `run.sh`. `results/base-image*.txt` and `results/image-id*.txt` record
+  what was used.
 - **GNU binutils 2.47:** the release tarball `binutils-2.47.tar.xz`, sha256
   `154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff`, which is
   checked in the `Dockerfile`. It is built twice inside each image, installing
@@ -48,41 +70,19 @@ Every input is public and pinned:
     It is not yet in any binutils release.
 - **Debian's GNU ld:** binutils 2.40, as shipped in the base images.
 - **lld:** Debian bookworm's LLD 14.0.6 package.
+- **Real-world projects:** cloned from GitHub at the commits in
+  `real-world/projects.txt` (Deno at `1b48a20`, 2026-09-28), unmodified. Their
+  build dependencies (cmake, clang, protobuf-compiler and a few `-dev` packages)
+  come from Debian, via `real-world/Dockerfile`.
 
-`results/env.txt` and `results/rust-1.97/env.txt` record the tool versions seen at
-run time.
-
-### Workload
-
-`crates/repro-gen/build.rs` generates one crate, compiled into a single codegen
-unit, containing, in this order:
-
-1. `REPRO_CALLERS` caller functions, `a_call_i() -> z_targ_i()`.
-2. `REPRO_PAD_MIB` never-executed 1 MiB functions (`asm!(".space 1048576")`),
-   default 160. These push the targets more than 128 MiB away from the callers,
-   which is beyond the ±128 MiB range of an AArch64 `BL`.
-3. `REPRO_CALLERS` target functions.
-4. Optionally, `REPRO_FILLERS` leaf functions that need no veneer.
-
-rustc gives each function its own `.text.*` section, and emits items in a
-deterministic order; the function names are chosen so that this order matches
-the layout above. As a result:
-
-- every caller needs one long-branch veneer (stub), so **N ≈ `REPRO_CALLERS`**;
-- each caller and target is its own input section, so **S ≈ 2 × `REPRO_CALLERS` +
-  `REPRO_FILLERS`**, plus the padding and the standard library.
-
-No code in the workload is shaped to trigger erratum 843419, and no linker
-created an erratum stub in any run (`erratum_stubs` in `results/*summary.txt`).
-So whatever the erratum pass costs here is overhead, not patching.
-
-`crates/repro/src/main.rs` calls every caller, through its veneer, and checks the
-sum. Each linked binary is run, and every result below printed `ok=true`.
+Each results directory has an `env.txt` with the tool versions (and, for the
+projects, the commit) seen at run time.
 
 ### Cases
 
-Each case is named `<linker>/<request>`. `.cargo/config.toml` sets the `repro-cc`
-wrapper as rustc's linker driver, and two environment variables select the case.
+Every measurement is one link, run through the `repro-cc` wrapper, which rustc
+uses as its linker driver. Two environment variables select the case, named
+`<linker>/<request>`.
 
 **`REPRO_LD`: which linker gcc runs**
 
@@ -108,101 +108,170 @@ thing there.
 
 - **ld given the flag:** whether ld's own command line contains
   `--fix-cortex-a53-843419`. The wrapper checks this for every link by dry-running
-  the gcc driver with `cc -###` (column `ld_gets_fix` in the raw summaries).
+  the gcc driver with `cc -###` (column `ld_gets_fix` in the raw summaries: the
+  number of times it appears).
 - **Erratum pass runs:** whether GNU ld executes the per-section erratum-843419
   pass (see [Explanation](#explanation)). It runs when ld is given the flag, **or**
   when ld lacks commit 6e72ff2: unpatched GNU ld runs it whether or not it is
-  given the flag. So it is "no" only for `patched/strip` (and `patched/optout` on
-  Rust 1.97). This column comes from the source; the stack profiles
-  (`results/profile-*.txt`) confirm it for `patched/keep` (flag given) and for
-  `stock/strip` (flag not given). In both, all 30 samples are in the pass. For
-  lld the column is "lld's": lld applies its own implementation of the fix
-  whenever it's given the flag.
+  given the flag. So it is "no" only for `patched/strip`, and for `patched/optout`
+  on Rust 1.97. This column comes from the source. The stack profiles
+  (`results/profile-*.txt`, synthetic workload) confirm it for `patched/keep`
+  (flag given) and for `stock/strip` (flag not given): in both, all 30 samples are
+  in the pass. For lld the column reads "lld's": lld applies its own
+  implementation of the fix whenever it is given the flag.
 - **Link time:** the wall-clock time of the wrapper's single `cc` invocation,
   which runs gcc, collect2 and the linker.
+- **Veneers:** long-branch stubs, counted from the linked binary's symbol table.
+  GNU ld names them `__<symbol>_veneer`, and lld `__AArch64*Thunk_<symbol>`.
 
-### Measurement
+### Real-world workload
 
-- The workload is compiled once (linked with lld, so the one-off compile isn't
-  slowed down). Each case then touches `main.rs` and relinks, so only the link
-  changes between cases.
-- **Veneers** are counted from the symbol table of the linked binary. GNU ld names
-  them `__<symbol>_veneer`, and lld `__AArch64*Thunk_<symbol>`.
-- Each case and each sweep point was run once. Run-to-run variance was not
-  measured, beyond comparing with an earlier run of the same cases, which agreed
-  to within about 5%.
+`real-world/run-project.sh` runs inside the container, for each project in
+`real-world/projects.txt`:
 
-Per-link records are in `results/link.log` and `results/rust-1.97/link.log`.
+1. `cargo build -p <package> --bin <bin>` with the default dev profile, linked with
+   lld so that the one-off full build isn't slowed down. Nothing about the project
+   is changed. Its `rust-toolchain.toml`, if any, is overridden so that the image's
+   rustc is used.
+2. For each case: touch the binary's root source file (`cli/main.rs` for Deno)
+   and run the same `cargo build` again. Cargo recompiles that one crate
+   incrementally and relinks; no dependency is rebuilt, because `REPRO_LD` and
+   `REPRO_A53` are not part of Cargo's fingerprint. This is the ordinary
+   edit-rebuild loop, and the recorded time is that relink.
+
+Deno runs on both Rust versions; the other projects run on Rust 1.98 only
+(`ALL_197=1` adds 1.97).
+
+### Synthetic workload
+
+The synthetic crate lets S and N be set independently, which no real project
+allows. It is shaped to need many stubs, not to trigger the erratum.
+
+`crates/repro-gen/build.rs` generates one crate, compiled into a single codegen
+unit, containing, in this order:
+
+1. `REPRO_CALLERS` caller functions, `a_call_i() -> z_targ_i()`.
+2. `REPRO_PAD_MIB` never-executed 1 MiB functions (`asm!(".space 1048576")`),
+   default 160. These stand in for 160 MiB of other code: they push the targets
+   more than 128 MiB away from the callers, beyond the ±128 MiB range of an
+   AArch64 `BL`.
+3. `REPRO_CALLERS` target functions.
+4. Optionally, `REPRO_FILLERS` leaf functions that need no veneer.
+
+rustc gives each function its own `.text.*` section, and emits items in a
+deterministic order; the function names are chosen so that this order matches
+the layout above. As a result:
+
+- every caller needs one long-branch veneer (stub), so **N ≈ `REPRO_CALLERS`**;
+- each caller and target is its own input section, so **S ≈ 2 × `REPRO_CALLERS` +
+  `REPRO_FILLERS`**, plus the padding and the standard library.
+
+No linker created an erratum stub in any synthetic run (`erratum_stubs` in
+`results/summary.txt` and `results/rust-1.97/summary.txt`), so whatever the erratum pass costs is overhead, not
+patching. `crates/repro/src/main.rs` calls every caller through its veneer and
+checks the sum; every linked binary printed `ok=true`.
+
+The workload is compiled once, then each case touches `main.rs` and relinks.
+
+### Measurement notes
+
+- Each case and sweep point was run once. Run-to-run variance was not measured
+  formally. The Deno cases were also run once during an earlier survey with a
+  near-identical script, and agreed to within 5%.
+- Per-link records, including build-script links, are in the `link.log` next to
+  each summary.
 
 ### Running it
 
 ```sh
-./run.sh                                       # everything, about 45 min on 64 vCPU
-REPRO_CALLERS=20000 RUST197=0 PROFILE=0 SWEEP=0 ./run.sh   # quick: Rust 1.98 matrix only
+./run.sh                                     # everything, about 1.5-2 h on 64 vCPU
+REALWORLD=0 ./run.sh                         # synthetic workload only
 ```
 
 Individual pieces, once the images are built:
 
 ```sh
-docker run --rm a53-ld-repro ./run-cases.sh patched/strip patched/keep   # chosen cases
+PROJECTS=deno real-world/run.sh                                          # Deno, Rust 1.98 and 1.97
+docker run --rm a53-ld-repro ./run-cases.sh patched/strip patched/keep   # chosen synthetic cases
 docker run --rm a53-ld-repro ./run-sweep.sh 20000:0 40000:0              # chosen sweep points
 ./profile-case.sh stock strip 40000 30                                   # stack samples of the running ld
 ```
 
 ## Results
 
-Both matrices use `REPRO_CALLERS=40000`: 162 MiB `.text`, about 80k input sections
-from the generated crate, and 40,178 veneers with GNU ld (40,021 with lld).
+### Deno
 
-### Case matrix, Rust 1.98.1
+Debug `deno` binary: 182 MiB `.text`, about 5,400 veneers with GNU ld (5,100 with
+lld). Results in `results/real-world/deno/`.
 
-rustc passes `-Wl,--fix-cortex-a53-843419` on every link.
+| case | ld given the flag (1.97 / 1.98) | erratum pass runs (1.97 / 1.98) | Rust 1.97.1 | Rust 1.98.1 |
+|---|---|---|---|---|
+| `patched/strip` | no / no | **no / no** | **32.5 s** | **32.8 s** |
+| `patched/keep` | yes (gcc default) / yes | yes / yes | 136.6 s | 139.9 s |
+| `patched/optout` | **no / yes** | **no / yes** | **32.6 s** | **144.5 s** |
+| `stock/keep` | yes (gcc default) / yes | yes / yes | 136.1 s | 141.5 s |
+| `debian/keep` | yes (gcc default) / yes | yes / yes | 128.1 s | 127.1 s |
+| `debian/optout` | no / yes | yes (unpatched) / yes | 120.2 s | 126.2 s |
+| `debian/strip` | no / no | yes (unpatched) / yes (unpatched) | 118.9 s | 127.9 s |
+| `lld/keep` | yes (gcc default) / yes | lld's / lld's | 5.7 s | 5.7 s |
 
-| case | ld given the flag | erratum pass runs | **link time** |
-|---|---|---|---|
-| `patched/strip` | no | **no** | **1.3 s** |
-| `patched/keep` | yes | yes | **79.7 s** |
-| `patched/optout` | yes (rustc's `-Wl,` wins over `-mno-fix`) | yes | **83.0 s** |
-| `stock/strip` | no | yes (unpatched) | 82.3 s |
-| `stock/keep` | yes | yes | 79.4 s |
-| `stock/optout` | yes | yes | 81.2 s |
-| `debian/strip` | no | yes (unpatched) | 61.4 s |
-| `debian/keep` | yes | yes | 63.1 s |
-| `debian/optout` | yes | yes | 61.3 s |
-| `lld/strip` | no | no | 0.2 s |
-| `lld/keep` | yes | lld's | 0.3 s |
-| `lld/optout` | yes | lld's | 0.3 s |
+- With the pass on, a Deno relink takes about 4.3× as long: roughly 105 s extra.
+- `patched/optout` is the one row that changes between versions. The opt-out
+  works on Rust 1.97 and does nothing on Rust 1.98.
+- The distro and release linkers (`debian`, `stock`) are slow whatever is passed,
+  because of the `ERRAT_NONE` bug (explanation, point 3).
 
-### Case matrix, Rust 1.97
+### Other projects
 
-rustc passes no flag. In `keep`, the flag comes from Debian's gcc, which is
-configured with `--enable-fix-cortex-a53-843419`.
+Rust 1.98.1, debug build of each project's main binary, relinked after touching
+its root source file. Results in `results/real-world/<project>/`.
 
-| case | ld given the flag | erratum pass runs | **link time** |
-|---|---|---|---|
-| `patched/strip` | no | **no** | **1.3 s** |
-| `patched/keep` | yes (gcc default) | yes | 70.6 s |
-| `patched/optout` | **no: the opt-out works** | **no** | **1.3 s** |
-| `stock/strip` | no | yes (unpatched) | 70.5 s |
-| `stock/keep` | yes (gcc default) | yes | 72.0 s |
-| `stock/optout` | no | yes (unpatched) | 68.4 s |
-| `debian/strip` | no | yes (unpatched) | 60.1 s |
-| `debian/keep` | yes (gcc default) | yes | 60.9 s |
-| `debian/optout` | no | yes (unpatched) | 61.3 s |
-| `lld/strip` | no | no | 0.2 s |
-| `lld/keep` | yes (gcc default) | lld's | 0.3 s |
-| `lld/optout` | no | no | 0.2 s |
+| project | `.text` | veneers | `patched/strip` (pass off) | `patched/keep` (pass on) | extra |
+|---|---|---|---|---|---|
+| Deno | 182 MiB | 5,431 | 32.8 s | 139.9 s | +327% |
+| nushell | 80 MiB | 0 | 15.1 s | 17.6 s | +17% |
+| uv | 66 MiB | 0 | 9.1 s | 11.5 s | +26% |
+| rust-analyzer | 47 MiB | 0 | 8.0 s | 9.8 s | +23% |
+| ruff | 18 MiB | 0 | 3.4 s | 4.2 s | +24% |
 
-What changed between the two tables is `patched/optout`. The same user opt-out,
-`-C link-arg=-mno-fix-cortex-a53-843419`, gives **1.3 s on Rust 1.97 and 83.0 s on
-Rust 1.98**. In every other row both versions agree on whether the pass runs; the
-slow GNU ld links are 10-20% slower on the Rust 1.98 image, which we have not
-investigated. Unpatched GNU ld is slow on both versions whatever is passed.
+- Below about 128 MiB of `.text`, every call is within `BL` range, so there are
+  no veneers and no large S × N term. The pass still adds about 17-26% to these
+  links, although none of them contains an erratum site.
+- Deno is the only one of these five above that size. We also tried Zed,
+  Databend and RisingWave, which we expected to be larger, but could not build
+  them in this image: Zed's prebuilt WebRTC needs a newer compiler runtime, Databend failed in
+  a build script, and RisingWave needs nightly Cargo.
 
-### Scaling, Rust 1.98.1
+### Synthetic workload: case matrix
 
-Patched GNU ld, so that the erratum pass is the only difference between the two
-time columns. `CALLERS` raises both N and S; `FILLERS` raises only S.
+`REPRO_CALLERS=40000`: 162 MiB `.text`, about 80k input sections from the
+generated crate, and about 40,180 veneers with GNU ld (40,021 with lld). Results
+in `results/summary.txt` (Rust 1.98) and `results/rust-1.97/summary.txt`.
+
+| case | ld given the flag (1.97 / 1.98) | erratum pass runs (1.97 / 1.98) | Rust 1.97.1 | Rust 1.98.1 |
+|---|---|---|---|---|
+| `patched/strip` | no / no | **no / no** | **1.3 s** | **1.3 s** |
+| `patched/keep` | yes (gcc default) / yes | yes / yes | 70.6 s | 79.7 s |
+| `patched/optout` | **no / yes** | **no / yes** | **1.3 s** | **83.0 s** |
+| `stock/strip` | no / no | yes (unpatched) / yes (unpatched) | 70.5 s | 82.3 s |
+| `stock/keep` | yes (gcc default) / yes | yes / yes | 72.0 s | 79.4 s |
+| `stock/optout` | no / yes | yes (unpatched) / yes | 68.4 s | 81.2 s |
+| `debian/strip` | no / no | yes (unpatched) / yes (unpatched) | 60.1 s | 61.4 s |
+| `debian/keep` | yes (gcc default) / yes | yes / yes | 60.9 s | 63.1 s |
+| `debian/optout` | no / yes | yes (unpatched) / yes | 61.3 s | 61.3 s |
+| `lld/strip` | no / no | no / no | 0.2 s | 0.2 s |
+| `lld/keep` | yes (gcc default) / yes | lld's / lld's | 0.3 s | 0.3 s |
+| `lld/optout` | no / yes | no / lld's | 0.2 s | 0.3 s |
+
+The same pattern as Deno: `patched/optout` is 1.3 s on Rust 1.97 and 83.0 s on
+Rust 1.98. The slow GNU ld links are 10-20% slower on the Rust 1.98 image than on
+the 1.97 one, which we have not investigated; Deno does not show this.
+
+### Synthetic workload: scaling
+
+Rust 1.98.1, patched GNU ld, so that the erratum pass is the only difference
+between the two time columns. `CALLERS` raises both N and S; `FILLERS` raises
+only S. Results in `results/sweep.txt`.
 
 | callers | fillers | veneers (N) | `patched/strip` (pass off) | `patched/keep` (pass on) | slowdown |
 |---|---|---|---|---|---|
@@ -233,20 +302,21 @@ results above.
    `bfd_hash_traverse(&globals->stub_hash_table, _bfd_aarch64_erratum_843419_branch_to_stub, …)`
    over the **entire** stub table, to find the few erratum stubs that belong to
    that one section. The table also holds every long-branch veneer. So the cost is
-   O(S × N), single-threaded, whether or not any erratum site exists; here none
-   does. The profiles put every sample in that walk. For contrast, the 32-bit Arm
-   backend keeps its erratum veneers in per-section lists
-   (`elf32_arm_write_section` walks `arm_data->erratumlist`).
+   O(S × N), single-threaded, whether or not any erratum site exists. The
+   profiles put every sample in that walk. For contrast, the 32-bit Arm backend
+   keeps its erratum veneers in per-section lists (`elf32_arm_write_section`
+   walks `arm_data->erratumlist`).
 2. **Large Rust binaries have both a large S and a large N.** rustc emits one
    `.text.*` section per function. Once `.text` exceeds `BL`'s ±128 MiB range, the
-   linker needs a veneer for many out-of-range calls.
+   linker needs a veneer for many out-of-range calls. Smaller binaries have
+   N ≈ 0, which is why the other projects pay much less.
 3. **binutils 2.33 through 2.47 run the pass even when it is not requested.**
    Since binutils 2.33 (PR ld/24373), `fix_erratum_843419` is an enum whose "off"
    value is `ERRAT_NONE = 1`. So `if (globals->fix_erratum_843419)` is always true
    (`stock/strip`, `debian/strip`). This is fixed on master by commit
    [6e72ff2](https://inbox.sourceware.org/binutils/20260806054354.27168-1-ktkachov@nvidia.com/),
-   which is not yet in a release. With that fix, not requesting the pass takes the
-   link from 79.7 s to 1.3 s (`patched/strip`).
+   which is not yet in a release. With that fix, not requesting the pass takes a
+   Deno relink from 139.9 s to 32.8 s (`patched/strip`).
 4. **Since Rust 1.98, users cannot stop rustc from requesting the pass.**
    [rust-lang/rust#155453](https://github.com/rust-lang/rust/pull/155453) adds
    `-Wl,--fix-cortex-a53-843419` to `pre_link_args` for the AArch64 Linux targets.
@@ -258,12 +328,12 @@ results above.
 5. **On distros whose gcc already enables the fix, the regression is in the
    opt-out, not the default.** Debian's gcc is configured with
    `--enable-fix-cortex-a53-843419`, so Rust 1.97 on Debian already asked ld for the
-   fix (`keep` rows of the Rust 1.97 table). What 1.98 removed is the escape hatch:
+   fix (`keep` rows on Rust 1.97). What 1.98 removed is the escape hatch:
    `-C link-arg=-mno-fix-cortex-a53-843419` worked on 1.97 and no longer does on
    1.98. On toolchains whose gcc does *not* enable it by default (for example the
    Arm GNU toolchain cited in the PR), 1.98 also changes the default.
 
-## Real-world data point
+## Another data point
 
 A production Rust test binary (debug, about 5.15M input sections, 565 MB `.text`,
 38,435 veneers) took about 71 minutes per link with GNU ld on Graviton, and 4 s
