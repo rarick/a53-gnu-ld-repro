@@ -41,8 +41,8 @@ The repository has three parts:
   `aarch64-unknown-linux-gnu`. Running on x86-64 under emulation has not been tested.
 - **Docker** with BuildKit (the default builder since Docker 23). Tested with Docker 25.
 - **Network access** during the image builds and project builds, to Docker Hub,
-  the Debian package mirrors, `ftp.gnu.org` (falling back to `ftpmirror.gnu.org`),
-  GitHub and crates.io.
+  the Debian package mirrors, `sourceware.org` (falling back to `ftp.gnu.org` and
+  `ftpmirror.gnu.org`), GitHub and crates.io.
 - **Disk:** about 2 GB per image (four images), plus about 65 GB of Cargo target
   directories and checkouts under `real-world/work` and `real-world/src`, most of
   it the two Deno debug builds.
@@ -61,9 +61,9 @@ Every input is public and pinned:
   digest in `run.sh`. `results/base-image*.txt` and `results/image-id*.txt` record
   what was used.
 - **GNU binutils 2.47:** the release tarball `binutils-2.47.tar.xz`, sha256
-  `154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff`, which is
-  checked in the `Dockerfile`. It is built twice inside each image, installing
-  only `ld`:
+  `154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff`, downloaded
+  from sourceware.org or ftp.gnu.org and checked in the `Dockerfile`. It is built
+  twice inside each image, installing only `ld`:
   - `/opt/binutils-stock`: unmodified.
   - `/opt/binutils-patched`: with `binutils-errat-none-fix.patch` applied. That's
     upstream binutils master commit 6e72ff251801 ("aarch64: ERRAT_NONE is not zero,

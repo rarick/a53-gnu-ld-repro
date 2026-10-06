@@ -17,7 +17,8 @@ ARG RUST_IMAGE=rust:1.98-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0
 FROM ${RUST_IMAGE}
 
 ARG BINUTILS_VERSION=2.47
-# sha256 of binutils-2.47.tar.xz (from ftp.gnu.org; any GNU mirror copy must match)
+# sha256 of binutils-2.47.tar.xz. The release is published on sourceware.org and
+# ftp.gnu.org (and its mirrors); every copy must match.
 ARG BINUTILS_SHA256=154ab23b60070e8f27013c22977f1129425d67d1e8acd6e13010e617811e4cff
 
 RUN apt-get update \
@@ -28,8 +29,11 @@ COPY binutils-errat-none-fix.patch /tmp/binutils-errat-none-fix.patch
 RUN set -eux; \
     cd /tmp; \
     tarball="binutils-${BINUTILS_VERSION}.tar.xz"; \
-    curl -fsSLO --retry 5 --retry-all-errors --connect-timeout 30 "https://ftp.gnu.org/gnu/binutils/$tarball" \
-      || curl -fsSLO --retry 5 --retry-all-errors --connect-timeout 30 "https://ftpmirror.gnu.org/binutils/$tarball"; \
+    for url in "https://sourceware.org/pub/binutils/releases/$tarball" \
+               "https://ftp.gnu.org/gnu/binutils/$tarball" \
+               "https://ftpmirror.gnu.org/binutils/$tarball"; do \
+      curl -fsSLO --retry 3 --retry-all-errors --connect-timeout 20 "$url" && break; \
+    done; \
     if [ -n "${BINUTILS_SHA256}" ]; then \
       echo "${BINUTILS_SHA256}  binutils-${BINUTILS_VERSION}.tar.xz" | sha256sum -c -; \
     fi; \
