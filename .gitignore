@@ -1,0 +1,6 @@
+/target/
+/results/sweep-*/
+/results/docker-build*.log
+/real-world/src/
+/real-world/work/
+/results/real-world/*/*/build.log

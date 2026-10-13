@@ -1,0 +1,6 @@
+# name          git URL                                         commit                                    package        bin
+deno            https://github.com/denoland/deno                1b48a20f85a8164aebe4fb29ae53909136a3d777  deno           deno
+nushell         https://github.com/nushell/nushell              6a8f2a3cd352b6e2bcdcf67c8e66c136200312a6  nu             nu
+uv              https://github.com/astral-sh/uv                 73337b788c9057f6f3db1035d64be02b61b6ce7b  uv             uv
+rust-analyzer   https://github.com/rust-lang/rust-analyzer      03fcb77246f2568adb0e9b2fa60d19c6cc1686f4  rust-analyzer  rust-analyzer
+ruff            https://github.com/astral-sh/ruff               d2e733fd3a3dc797a81e9e59e3b0342046b40a09  ruff           ruff

@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = ["crates/repro-gen", "crates/repro"]
+
+# Keep the generated crate in one codegen unit, so its functions are laid out as
+# one sequence: callers, fillers, padding, targets. rustc emits them in name
+# order, hence the a_/b_/m_/z_ prefixes in build.rs. That layout is what puts
+# every caller more than 128 MiB away from its target.
+[profile.dev.package.repro-gen]
+codegen-units = 1

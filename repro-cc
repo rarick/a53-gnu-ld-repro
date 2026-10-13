@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Linker driver wrapper used as rustc's linker: via .cargo/config.toml for the
+# synthetic workload, and via CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER in
+# real-world/run-project.sh.
+#
+#   REPRO_LD    stock  -> GNU ld from the binutils-2.47 release tarball
+#               patched -> the same, plus upstream commit 6e72ff2 (ERRAT_NONE fix)
+#               debian -> the distro's own GNU ld (Debian bookworm: binutils 2.40)
+#               lld    -> LLVM lld (Debian package) via -fuse-ld=lld
+#   REPRO_A53   keep   -> pass rustc's arguments unchanged. rustc >= 1.98 adds
+#                         -Wl,--fix-cortex-a53-843419 on aarch64 Linux targets.
+#               strip  -> link with NO Cortex-A53 843419 fix: drop rustc's
+#                         -Wl,--fix-cortex-a53-843419 and pass
+#                         -mno-fix-cortex-a53-843419 so the gcc driver does not
+#                         add its own (Debian's gcc is configured with
+#                         --enable-fix-cortex-a53-843419).
+#               optout -> keep rustc's arguments and append
+#                         -mno-fix-cortex-a53-843419, i.e. what a user gets from
+#                         `-C link-arg=-mno-fix-cortex-a53-843419` today.
+#
+# Each invocation appends one line to $REPRO_LOG, including whether the
+# linker itself receives --fix-cortex-a53-843419 (checked with `cc -###`).
+set -u
+mode_ld=${REPRO_LD:-debian}
+mode_a53=${REPRO_A53:-keep}
+flag='-Wl,--fix-cortex-a53-843419'
+
+args=()
+out=
+prev=
+for a in "$@"; do
+  if [[ $a == @* && -r ${a#@} ]]; then
+    f=${a#@}
+    if [[ $mode_a53 == strip ]]; then
+      grep -v -x -e "$flag" "$f" > "$f.stripped"
+      a="@$f.stripped"
+    fi
+    o=$(grep -A1 -x -e '-o' "${a#@}" | tail -1)
+    [[ -n $o ]] && out=$o
+  elif [[ $mode_a53 == strip && $a == "$flag" ]]; then
+    continue
+  fi
+  [[ $prev == -o ]] && out=$a
+  prev=$a
+  args+=("$a")
+done
+
+case $mode_ld in
+  stock|patched) extra=("-B/opt/binutils-$mode_ld/bin/") ;;
+  lld)           extra=(-fuse-ld=lld) ;;
+  debian)        extra=() ;;
+  *) echo "repro-cc: unknown REPRO_LD=$mode_ld" >&2; exit 2 ;;
+esac
+[[ $mode_a53 == strip ]] && extra+=(-mno-fix-cortex-a53-843419)
+# optout: what a user can do today without a wrapper, i.e.
+# `-C link-arg=-mno-fix-cortex-a53-843419`. rustc's -Wl,--fix-... still wins.
+[[ $mode_a53 == optout ]] && args+=(-mno-fix-cortex-a53-843419)
+
+# What the linker will actually be asked to do: dry-run the driver.
+ld_fix=$(cc "${extra[@]}" "${args[@]}" -### 2>&1 | tr ' ' '\n' | grep -c -- '--fix-cortex-a53-843419')
+
+ld_path=$(cc "${extra[@]}" -print-prog-name=ld)
+[[ $mode_ld == lld ]] && ld_path=$(command -v ld.lld)
+
+start=$(date +%s.%N)
+cc "${extra[@]}" "${args[@]}"
+rc=$?
+end=$(date +%s.%N)
+
+printf '%s ld=%s a53=%s ld_gets_fix=%d ld_path=%s rc=%d link_s=%.1f\n' \
+  "$(basename "${out:-?}")" "$mode_ld" "$mode_a53" "$ld_fix" "$ld_path" "$rc" \
+  "$(echo "$end - $start" | bc)" >> "${REPRO_LOG:-/tmp/repro-link.log}"
+exit $rc
