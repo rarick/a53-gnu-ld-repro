@@ -47,8 +47,8 @@ The repository has three parts:
   directories and checkouts under `real-world/work` and `real-world/src`, most of
   it the two Deno debug builds.
 - **Time:** on 64 vCPU, a full `./run.sh` takes about 1.5-2 hours: about 40
-  minutes for Deno, 15 for the other projects and 45 for the synthetic workload. Links are single-threaded, so fewer cores mostly
-  slows the compiles.
+  minutes for Deno, 15 for the other projects and 45 for the synthetic workload.
+  Links are single-threaded, so fewer cores mostly slows the compiles.
 
 All results are from an AWS Graviton3 instance (Neoverse V1, 64 vCPU).
 
@@ -115,11 +115,11 @@ thing there.
   pass (see [Explanation](#explanation)). It runs when ld is given the flag, **or**
   when ld lacks commit 6e72ff2: unpatched GNU ld runs it whether or not it is
   given the flag. So among the GNU ld cases it is "no" only for `patched/strip`,
-  and for `patched/optout` on Rust 1.97. This column comes from the source. The stack profiles
-  (`results/profile-*.txt`, synthetic workload) confirm it for `patched/keep`
-  (flag given) and for `stock/strip` (flag not given): in both, all 30 samples are
-  in the pass. For lld the column reads "lld's": lld applies its own
-  implementation of the fix whenever it is given the flag.
+  and for `patched/optout` on Rust 1.97. This column comes from the source. The
+  stack profiles (`results/profile-*.txt`, synthetic workload) confirm it for
+  `patched/keep` (flag given) and for `stock/strip` (flag not given): in both,
+  all 30 samples are in the pass. For lld the column reads "lld's": lld applies
+  its own implementation of the fix whenever it is given the flag.
 - **Link time:** the wall-clock time of the wrapper's single `cc` invocation,
   which runs gcc, collect2 and the linker.
 - **Veneers:** long-branch stubs, counted from the linked binary's symbol table.
@@ -168,9 +168,10 @@ prefixes are for; `nm -n` on the linked binary shows the layout. As a result:
   `REPRO_FILLERS`**, plus the padding and the standard library.
 
 No linker created an erratum stub in any synthetic run (`erratum_stubs` in
-`results/summary.txt` and `results/rust-1.97/summary.txt`), so whatever the erratum pass costs is overhead, not
-patching. `crates/repro/src/main.rs` calls every caller through its veneer and
-checks the sum; every linked binary printed `ok=true`.
+`results/summary.txt` and `results/rust-1.97/summary.txt`), so whatever the
+erratum pass costs is overhead, not patching. `crates/repro/src/main.rs` calls
+every caller through its veneer and checks the sum; every linked binary printed
+`ok=true`.
 
 The workload is compiled once, then each case touches `main.rs` and relinks.
 
@@ -242,8 +243,8 @@ its root source file. Results in `results/real-world/<project>/`.
   links, although none of them contains an erratum site.
 - Deno is the only one of these five above that size. We also tried Zed,
   Databend and RisingWave, which we expected to be larger, but could not build
-  them in this image: Zed's prebuilt WebRTC needs a newer compiler runtime, Databend failed in
-  a build script, and RisingWave needs nightly Cargo.
+  them in this image: Zed's prebuilt WebRTC needs a newer compiler runtime,
+  Databend failed in a build script, and RisingWave needs nightly Cargo.
 
 ### Synthetic workload: case matrix
 
@@ -337,9 +338,3 @@ results above.
    `-C link-arg=-mno-fix-cortex-a53-843419` worked on 1.97 and no longer does on
    1.98. On toolchains whose gcc does *not* enable it by default (for example the
    Arm GNU toolchain cited in the PR), 1.98 also changes the default.
-
-## Another data point
-
-A production Rust test binary (debug, about 5.15M input sections, 565 MB `.text`,
-38,435 veneers) took about 71 minutes per link with GNU ld on Graviton, and 4 s
-with mold. The same S × N walk accounted for all stack samples.
