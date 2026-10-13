@@ -22,6 +22,8 @@ fn main() {
     writeln!(s, "pub const PAD_MIB: usize = {pad_mib};").unwrap();
     writeln!(s, "pub const FILLERS: usize = {fillers};").unwrap();
 
+    // rustc emits these in name order (a_call, b_fill, m_padd, z_targ), not in
+    // the order they are written here. The prefixes set the layout.
     for i in 0..fillers {
         writeln!(s, "#[inline(never)] pub fn b_fill_{i:07}() -> u64 {{ {i} }}").unwrap();
     }
