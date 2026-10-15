@@ -31,7 +31,9 @@ The repository has three parts:
   Binaries below ~128 MiB of `.text` need no stubs and pay a much smaller cost.
 - **A synthetic crate** ([`crates/`](crates/)): not a real-world case, but a way
   to vary sections and stubs independently, to show the S × N scaling and to
-  isolate each linker and flag combination.
+  isolate each linker and flag combination. For a quick reproduction,
+  [`minimal/`](minimal/) builds it once with a plain `cargo build` in the stock
+  `rust:1.98-bookworm` image.
 
 ## Methodology
 
@@ -188,6 +190,7 @@ The workload is compiled once, then each case touches `main.rs` and relinks.
 ```sh
 ./run.sh                                     # everything, about 1.5-2 h on 64 vCPU
 REALWORLD=0 ./run.sh                         # synthetic workload only
+./minimal/run.sh                             # one plain cargo build of the synthetic crate, stock image
 ```
 
 Individual pieces, once the images are built:
